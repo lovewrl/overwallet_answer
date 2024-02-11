@@ -1,0 +1,120 @@
+import com.alibaba.fastjson.JSONArray
+import com.alibaba.fastjson.JSONObject
+import org.springframework.http.HttpEntity
+import org.springframework.http.HttpHeaders
+import org.springframework.http.HttpMethod
+import org.springframework.http.ResponseEntity
+import org.springframework.web.client.RestTemplate
+import java.text.SimpleDateFormat
+import java.util.Date
+
+def dateFormat = new SimpleDateFormat("yyyy-MM-dd")
+def today = new Date()
+String formattedDate = dateFormat.format(today)
+
+def testRestApi() {
+    RestTemplate restTemplate = SpringTool.getBean(RestTemplate.class)
+
+    HttpHeaders headers = new HttpHeaders()
+    headers.add("client-version", "1.0.7.79")
+    headers.add("packagehash", "抓包，换成自己的")
+    headers.add("content-type", "application/json")
+    headers.add("cookie", "抓包，换成自己的")
+    headers.add("user-agent", "okhttp/4.9.2")
+
+    JSONObject postData = new JSONObject()
+    postData.put("access_token",  "抓包，换成自己的")
+    postData.put("refresh_token", "抓包，换成自己的")
+
+    // 刷新token
+    ResponseEntity<JSONObject> responseEntity = restTemplate.exchange(
+            "https://mover-api-prod.over.network/auth/refresh",
+            HttpMethod.POST,
+            new HttpEntity<>(postData.toJSONString(), headers),
+            JSONObject.class
+    )
+
+    JSONObject responseBody = responseEntity.getBody()
+
+    JSONObject data = responseBody.getJSONObject("data")
+    String newAccessToken = data.getString("access_token")
+    println("Access token: $newAccessToken")
+
+    // 设置请求头
+    headers.set("authorization", "Bearer $newAccessToken")
+
+    // 发送 GET 请求获取 quiz_id
+    ResponseEntity<JSONObject> infoResponseEntity = restTemplate.exchange(
+            "https://mover-api-prod.over.network/mission/3/info",
+            HttpMethod.GET,
+            new HttpEntity<>(headers),
+            JSONObject.class
+    )
+
+    Integer quizId = infoResponseEntity.getBody().getJSONObject("data").getInteger("quiz_id")
+    assertNotNull(quizId, "Quiz ID is null.")
+    println("Quiz ID: $quizId")
+
+    // 使用 quiz_id 发送 GET 请求到 /start
+    ResponseEntity<JSONObject> startResponseEntity = restTemplate.exchange(
+            "https://mover-api-prod.over.network/mission/3/quiz/$quizId/start",
+            HttpMethod.GET,
+            new HttpEntity<>(headers),
+            JSONObject.class
+    )
+
+    JSONArray choices = startResponseEntity.getBody().getJSONObject("data").getJSONArray("choices")
+    println("Quiz Choices: $choices")
+
+    // 遍历 choices 并发送 POST 请求提交答案，最多两次
+    for (int i = 1; i < 3; i++) {
+        JSONArray answerList = new JSONArray()
+        answerList.add(choices.getString(i)) // 获取对应的答案
+
+        JSONObject getData = new JSONObject()
+        getData.put("answer_list", answerList)
+
+        ResponseEntity<JSONObject> submitResponseEntity = restTemplate.exchange(
+                "https://mover-api-prod.over.network/mission/3/quiz/$quizId/submit",
+                HttpMethod.POST,
+                new HttpEntity<>(getData.toJSONString(), headers),
+                JSONObject.class
+        )
+
+        JSONObject submitResponse = submitResponseEntity.getBody()
+        String quizStatus = submitResponse.getJSONObject("data").getString("quiz_status")
+
+        // 根据响应判断是否成功并记录日志
+        if ("solved".equals(quizStatus)) {
+            String answer = choices.getString(i)
+            println("Quiz Solved with choice: $answer")
+
+            String url = "https://sctapi.ftqq.com/SCT230894TzEWXcwI9AJ0yl9oxQfAqk2fd.send?title=${formattedDate}答案是${answer}"
+            ResponseEntity<JSONObject> sendMsg = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    JSONObject.class
+            )
+
+            break
+        } else if ("failed".equals(quizStatus)) {
+            JSONArray correctAnswer = submitResponse.getJSONObject("data").getJSONArray("correct_answer")
+            if (!correctAnswer.isEmpty()) {
+                int correctIndex = correctAnswer.getInteger(0) - 1 // 从 API 返回的索引转换为数组索引
+                String answer = choices.getString(correctIndex)
+
+                String url = "https://sctapi.ftqq.com/SCT230894TzEWXcwI9AJ0yl9oxQfAqk2fd.send?title=${formattedDate}答案是${answer}"
+                ResponseEntity<JSONObject> sendMsg = restTemplate.exchange(
+                        url,
+                        HttpMethod.GET,
+                        new HttpEntity<>(headers),
+                        JSONObject.class
+                )
+                println("Quiz Failed with choice: ${choices.getString(i)}, Correct answer: $answer")
+            }
+        }
+    }
+}
+
+testRestApi()
