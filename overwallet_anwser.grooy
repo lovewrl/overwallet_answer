@@ -89,7 +89,7 @@ def testRestApi() {
             String answer = choices.getString(i)
             println("Quiz Solved with choice: $answer")
 
-            String url = "https://sctapi.ftqq.com/SCT230894TzEWXcwI9AJ0yl9oxQfAqk2fd.send?title=${formattedDate}答案是${answer}"
+            String url = "https://sctapi.ftqq.com/server酱的apikey.send?title=${formattedDate}答案是${answer}"
             ResponseEntity<JSONObject> sendMsg = restTemplate.exchange(
                     url,
                     HttpMethod.GET,
